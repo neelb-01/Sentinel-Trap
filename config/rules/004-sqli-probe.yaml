@@ -1,0 +1,15 @@
+id: sqli-probe
+name: SQL injection probe
+severity: 0.7
+enabled: true
+description: >
+  Classic tautologies and stacked-query markers in a submitted value. sentinel-web
+  never touches a database, so these are recorded as training data, not risk.
+match:
+  any:
+    - field: payload.q
+      op: regex
+      value: '(?i)(''\s*or\s*''?1''?\s*=\s*''?1|union\s+all?\s*select|sleep\(\d+\)|benchmark\()'
+    - field: payload.user
+      op: regex
+      value: '(?i)(''\s*or\s*1\s*=\s*1|--\s*$)'

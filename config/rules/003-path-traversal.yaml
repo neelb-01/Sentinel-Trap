@@ -1,0 +1,16 @@
+id: path-traversal
+name: Directory traversal attempt
+severity: 0.75
+enabled: true
+description: Encoded or literal parent-directory sequences in a request path or query.
+match:
+  any:
+    - field: payload.path
+      op: regex
+      value: '(\.\./|\.\.\|%2e%2e[/%5c])'
+    - field: payload.query
+      op: regex
+      value: '(\.\./|%2e%2e[/%5c])'
+    - field: payload.q
+      op: regex
+      value: '/etc/(passwd|shadow)'

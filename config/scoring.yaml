@@ -1,0 +1,40 @@
+# Threat-score fusion weights.
+#
+# These live here, not in code, so they can be tuned against a validation set and
+# then frozen. A weighted sum beats a learned meta-model here because every number
+# is explainable.
+#
+#   threat_score = clamp(0, 100,
+#         w.rule_severity     * max_rule_severity      # 0-1, highest-severity rule that fired
+#       + w.anomaly           * anomaly_score          # 0-1, Isolation Forest, normalised
+#       + w.classifier        * class_confidence * class_weight
+#       + w.ip_reputation     * ip_reputation_penalty  # prior sightings, ASN, threat intel
+#       + w.persistence       * persistence_factor )   # repeat visits across days
+
+weights:
+  rule_severity: 40
+  anomaly: 25
+  classifier: 20
+  ip_reputation: 10
+  persistence: 5
+
+# Per-class multipliers: not every correctly-identified class is equally alarming.
+class_weights:
+  malware_dropper: 1.0
+  web_exploit: 0.9
+  credential_bruteforce: 0.7
+  recon_scan: 0.4
+  benign: 0.0
+
+thresholds:
+  alert_minimum: 25      # below this, record the session but raise no alert
+  high: 60
+  critical: 85
+
+sessioniser:
+  gap_minutes: 15        # a new session starts after this much silence
+  max_duration_minutes: 240
+
+# Set once tuned. Leave null to make it obvious the weights are still defaults.
+tuned_against: null
+tuned_on: null
