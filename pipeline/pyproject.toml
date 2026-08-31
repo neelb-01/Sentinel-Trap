@@ -1,0 +1,36 @@
+[project]
+name = "sentinel-pipeline"
+version = "0.1.0"
+description = "SentinelTrap ingest and detection pipeline"
+requires-python = ">=3.12"
+dependencies = [
+    "redis>=5.2",
+    "psycopg[binary]>=3.2",
+]
+
+[project.optional-dependencies]
+# Phase 3+. Kept out of the runtime image until the detection engine exists.
+detect = [
+    "scikit-learn>=1.6",
+    "lightgbm>=4.5",
+    "hdbscan>=0.8.40",
+    "numpy>=2.1",
+    "pandas>=2.2",
+    "pyyaml>=6.0",
+    "geoip2>=4.8",
+]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
