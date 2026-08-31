@@ -6,8 +6,8 @@ Three decoy services pretend to be vulnerable. Everything they log is normalised
 stream, grouped into sessions, scored by a layered detection stack — rules, anomaly detection, and a
 supervised classifier — and rendered live in a browser as it happens.
 
-> **Status: early.** The scaffold runs and the ingest path works end to end. The detection layers and
-> dashboard are not built yet. See [Roadmap](#roadmap).
+> **Status: early.** The decoy tier, ingest path and storage layer are written and wired together;
+> the detection layers and dashboard are not built yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -41,7 +41,7 @@ browser.
 |---|---|---|
 | SSH / Telnet decoy | [Cowrie](https://github.com/cowrie/cowrie) | configured |
 | Web decoy | `sentinel-web` (FastAPI) | **built here** |
-| FTP / SMB / MySQL decoy | [Dionaea](https://github.com/DinoTools/dionaea) | configured |
+| FTP / SMB / MySQL decoy | [Dionaea](https://github.com/DinoTools/dionaea) | scaffolded, disabled |
 | Event bus | Redis Streams | consumer groups, at-least-once |
 | Store | PostgreSQL + TimescaleDB | `events` hypertable |
 | Detection | scikit-learn, LightGBM, HDBSCAN | **built here** |
@@ -81,9 +81,10 @@ sudo ./scripts/honeynet-egress.sh
 Requires Docker with Compose v2.
 
 ```sh
-cp .env.example .env      # then edit POSTGRES_PASSWORD
-make up                   # build and start the stack
-make logs                 # follow the tailer
+cp .env.example .env             # then edit POSTGRES_PASSWORD
+sudo chown 65534 logs/sentinel-web   # the decoy runs as nobody under read_only
+make up                          # build and start the stack
+make logs-tailer                 # follow the ingest path
 ```
 
 Then knock on the SSH decoy and watch the event arrive:
@@ -103,13 +104,14 @@ SELECT ts, decoy, src_ip, action, payload FROM events ORDER BY ts DESC LIMIT 5;
 ```
 decoys/sentinel-web/   the web honeypot — fake logins, injectable-looking endpoints, tarpit
 decoys/cowrie/         Cowrie configuration
-pipeline/              log tailer, event schema, sessioniser, detection engine
-api/                   FastAPI REST + WebSocket        (phase 2)
-dashboard/             Next.js dashboard               (phase 2)
-attack-sim/            traffic generator                (phase 3)
+pipeline/              event schema, log tailer, writer; sessioniser and detection to come
 db/init/               schema, hypertable, indexes
 config/                scoring weights and detection rules
-scripts/               host-side setup
+scripts/               host-side setup (egress drop)
+data/geoip/            MaxMind .mmdb files — fetched manually, not committed
+api/                   FastAPI REST + WebSocket         (phase 2)
+dashboard/             Next.js dashboard                (phase 2)
+attack-sim/            traffic generator                (phase 3)
 ```
 
 ## Roadmap
@@ -117,7 +119,7 @@ scripts/               host-side setup
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | in progress |
-| 2 | Web decoy endpoints, REST + `/ws/live`, live feed in the browser | next |
+| 2 | REST API + `/ws/live`, live feed in the browser | next |
 | 3 | Sessionisation, 25-feature extractor, enrichment, YAML rule engine | |
 | 4 | Isolation Forest, LightGBM classifier, HDBSCAN campaigns, retraining | |
 | 5 | Evaluation on a hand-labelled held-out set, session replay, auth | |
