@@ -1,0 +1,172 @@
+# SentinelTrap — two networks, one direction of flow.
+#
+#   honeynet  : the decoys. Publishes ports. Egress dropped in DOCKER-USER
+#               (run scripts/honeynet-egress.sh). No route to the platform network.
+#   platform  : everything else. Publishes nothing beyond 127.0.0.1.
+#
+# The ONLY channel between the two halves is ./logs, mounted read-only on the
+# platform side. Do not attach a decoy to the platform network for any reason.
+
+name: sentineltrap
+
+x-decoy-hardening: &decoy-hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 100
+  mem_limit: 256m
+  restart: unless-stopped
+  networks: [honeynet]
+
+services:
+  # ------------------------------------------------------------------ decoys
+
+  cowrie:
+    image: cowrie/cowrie:2.6.1
+    container_name: st-cowrie
+    <<: *decoy-hardening
+    mem_limit: 512m
+    ports:
+      - "22:2222"    # SSH
+      - "23:2223"    # Telnet
+    volumes:
+      - ./decoys/cowrie/cowrie.cfg:/cowrie/cowrie-git/etc/cowrie.cfg:ro
+      - ./logs/cowrie:/cowrie/cowrie-git/var/log/cowrie
+      - cowrie-dl:/cowrie/cowrie-git/var/lib/cowrie/downloads
+    # read_only:true is deliberate, but Cowrie writes to a few paths besides the
+    # ones mounted above (tty logs, state). If it crash-loops on first run, check
+    # `docker logs st-cowrie` for EROFS and add the path as a tmpfs here rather
+    # than dropping read_only.
+    tmpfs:
+      - /tmp
+      - /cowrie/cowrie-git/var/run
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 2222 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  sentinel-web:
+    build: ./decoys/sentinel-web
+    container_name: st-web
+    <<: *decoy-hardening
+    user: "65534:65534"           # nobody
+    ports:
+      - "80:8080"
+      - "8080:8080"
+    volumes:
+      # Runs as nobody(65534) under read_only, so this must be writable by that
+      # uid on the host: chown 65534 logs/sentinel-web
+      - ./logs/sentinel-web:/logs
+    environment:
+      ST_LOG_PATH: /logs/events.jsonl
+      ST_TARPIT_MIN_SECONDS: "3"
+      ST_TARPIT_MAX_SECONDS: "8"
+    tmpfs:
+      - /tmp
+
+  # Dionaea is config-only and noisy to build; enable it once phase 1 is green.
+  # dionaea:
+  #   image: dinotools/dionaea:latest
+  #   container_name: st-dionaea
+  #   <<: *decoy-hardening
+  #   ports: ["21:21", "445:445", "3306:3306"]
+  #   volumes:
+  #     - ./logs/dionaea:/var/log/dionaea
+
+  # ---------------------------------------------------------------- platform
+
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    container_name: st-db
+    restart: unless-stopped
+    networks: [platform]
+    ports:
+      - "127.0.0.1:5432:5432"     # localhost only — reach it over an SSH tunnel
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentineltrap}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sentinel} -d ${POSTGRES_DB:-sentineltrap}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: st-redis
+    restart: unless-stopped
+    networks: [platform]
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy noeviction
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  tailer:
+    build: ./pipeline
+    container_name: st-tailer
+    command: ["python", "-m", "sentinel_pipeline.tailer"]
+    restart: unless-stopped
+    networks: [platform]
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/logs:ro           # read-only: the seam between the two halves
+      - tailer-state:/state
+    environment:
+      ST_LOG_DIR: /logs
+      ST_STATE_DIR: /state
+      ST_REDIS_URL: redis://redis:6379/0
+      ST_STREAM: events.raw
+
+  writer:
+    build: ./pipeline
+    container_name: st-writer
+    command: ["python", "-m", "sentinel_pipeline.writer"]
+    restart: unless-stopped
+    networks: [platform]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      ST_REDIS_URL: redis://redis:6379/0
+      ST_STREAM: events.raw
+      ST_GROUP: writer
+      ST_PG_DSN: postgresql://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-sentineltrap}
+
+  # api:        phase 2 — FastAPI, REST /api/* + WebSocket /ws/live
+  # dashboard:  phase 2 — Next.js, bound to 127.0.0.1:3000 only
+
+networks:
+  honeynet:
+    name: sentineltrap_honeynet
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24    # must match scripts/honeynet-egress.sh
+  platform:
+    name: sentineltrap_platform
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  tailer-state:
+  cowrie-dl:
