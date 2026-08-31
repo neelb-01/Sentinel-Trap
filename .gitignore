@@ -1,0 +1,49 @@
+# --- runtime data (never commit captured traffic or samples) ---
+# The directories themselves are tracked (via .gitkeep) so the compose bind
+# mounts land on existing, correctly-owned paths; their contents are not.
+logs/**
+!logs/**/
+!logs/**/.gitkeep
+data/**
+!data/**/
+!data/**/README.md
+artifacts/
+*.pcap
+
+# --- secrets ---
+.env
+*.pem
+*.key
+
+# --- GeoIP database (fetch manually; see data/geoip/README.md) ---
+*.mmdb
+
+# --- trained models ---
+models/*.pkl
+models/*.joblib
+models/*.txt
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+
+# --- editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+CLAUDE.md
