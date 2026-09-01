@@ -7,9 +7,8 @@ stream, grouped into sessions, scored by a layered detection stack — rules, an
 supervised classifier — and rendered live in a browser as it happens.
 
 > **Status: early.** The decoy tier, ingest path and storage layer are written and wired together —
-> the `sentinel-web` → Redis → Postgres path has been run end-to-end and events are landing in the
-> database. Cowrie is up but not yet logging (a host-side permission fix, see [Quick start](#quick-start)).
-> Detection layers and dashboard are not built yet. See [Roadmap](#roadmap).
+> both `sentinel-web` and Cowrie have been run end-to-end through Redis into Postgres, real login
+> attempts included. Detection layers and dashboard are not built yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -121,7 +120,7 @@ attack-sim/            traffic generator                (phase 3)
 
 | Phase | Scope | State |
 |---|---|---|
-| 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | web decoy verified end-to-end; Cowrie logging pending |
+| 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | verified end-to-end |
 | 2 | REST API + `/ws/live`, live feed in the browser | next |
 | 3 | Sessionisation, 25-feature extractor, enrichment, YAML rule engine | |
 | 4 | Isolation Forest, LightGBM classifier, HDBSCAN campaigns, retraining | |
