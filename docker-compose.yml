@@ -22,7 +22,7 @@ services:
   # ------------------------------------------------------------------ decoys
 
   cowrie:
-    image: cowrie/cowrie:2.6.1
+    image: cowrie/cowrie:3.0.13
     container_name: st-cowrie
     <<: *decoy-hardening
     mem_limit: 512m
