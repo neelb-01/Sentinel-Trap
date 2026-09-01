@@ -6,8 +6,10 @@ Three decoy services pretend to be vulnerable. Everything they log is normalised
 stream, grouped into sessions, scored by a layered detection stack — rules, anomaly detection, and a
 supervised classifier — and rendered live in a browser as it happens.
 
-> **Status: early.** The decoy tier, ingest path and storage layer are written and wired together;
-> the detection layers and dashboard are not built yet. See [Roadmap](#roadmap).
+> **Status: early.** The decoy tier, ingest path and storage layer are written and wired together —
+> the `sentinel-web` → Redis → Postgres path has been run end-to-end and events are landing in the
+> database. Cowrie is up but not yet logging (a host-side permission fix, see [Quick start](#quick-start)).
+> Detection layers and dashboard are not built yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -82,7 +84,8 @@ Requires Docker with Compose v2.
 
 ```sh
 cp .env.example .env             # then edit POSTGRES_PASSWORD
-sudo chown 65534 logs/sentinel-web   # the decoy runs as nobody under read_only
+sudo chown 65534 logs/sentinel-web   # sentinel-web runs as nobody under read_only
+sudo chown 999 logs/cowrie           # cowrie runs as uid 999 under read_only
 make up                          # build and start the stack
 make logs-tailer                 # follow the ingest path
 ```
@@ -118,7 +121,7 @@ attack-sim/            traffic generator                (phase 3)
 
 | Phase | Scope | State |
 |---|---|---|
-| 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | in progress |
+| 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | web decoy verified end-to-end; Cowrie logging pending |
 | 2 | REST API + `/ws/live`, live feed in the browser | next |
 | 3 | Sessionisation, 25-feature extractor, enrichment, YAML rule engine | |
 | 4 | Isolation Forest, LightGBM classifier, HDBSCAN campaigns, retraining | |
