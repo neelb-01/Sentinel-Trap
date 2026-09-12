@@ -8,7 +8,10 @@ supervised classifier — and rendered live in a browser as it happens.
 
 > **Status: early.** The decoy tier, ingest path and storage layer are written and wired together —
 > both `sentinel-web` and Cowrie have been run end-to-end through Redis into Postgres, real login
-> attempts included. Detection layers and dashboard are not built yet. See [Roadmap](#roadmap).
+> attempts included. The API's `/api/events` and `/ws/live` are also verified end-to-end: real
+> `sentinel-web` traffic reaches a connected WebSocket client as batched frames, independently of
+> the writer's own Postgres path. Detection layers and the dashboard itself are not built yet. See
+> [Roadmap](#roadmap).
 
 ---
 
@@ -99,6 +102,10 @@ make psql
 SELECT ts, decoy, src_ip, action, payload FROM events ORDER BY ts DESC LIMIT 5;
 ```
 
+Or watch it over the API instead of psql — `curl http://127.0.0.1:8000/api/events?limit=5` for
+history, or open a WebSocket to `ws://127.0.0.1:8000/ws/live` to watch new events arrive as they
+happen.
+
 `make help` lists the rest.
 
 ## Layout
@@ -111,7 +118,7 @@ db/init/               schema, hypertable, indexes
 config/                scoring weights and detection rules
 scripts/               host-side setup (egress drop)
 data/geoip/            MaxMind .mmdb files — fetched manually, not committed
-api/                   FastAPI REST + WebSocket         (phase 2)
+api/                   FastAPI REST + WebSocket — built, verified end-to-end
 dashboard/             Next.js dashboard                (phase 2)
 attack-sim/            traffic generator                (phase 3)
 ```
@@ -121,7 +128,7 @@ attack-sim/            traffic generator                (phase 3)
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | verified end-to-end |
-| 2 | REST API + `/ws/live`, live feed in the browser | next |
+| 2 | REST API + `/ws/live`, live feed in the browser | API verified end-to-end; dashboard next |
 | 3 | Sessionisation, 25-feature extractor, enrichment, YAML rule engine | |
 | 4 | Isolation Forest, LightGBM classifier, HDBSCAN campaigns, retraining | |
 | 5 | Evaluation on a hand-labelled held-out set, session replay, auth | |
