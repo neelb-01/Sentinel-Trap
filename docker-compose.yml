@@ -151,7 +151,30 @@ services:
       ST_GROUP: writer
       ST_PG_DSN: postgresql://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-sentineltrap}
 
-  # api:        phase 2 — FastAPI, REST /api/* + WebSocket /ws/live
+  api:
+    build: ./api
+    container_name: st-api
+    restart: unless-stopped
+    networks: [platform]
+    ports:
+      - "127.0.0.1:8000:8000"    # localhost only — reach it over an SSH tunnel
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      ST_PG_DSN: postgresql://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-sentineltrap}
+      ST_REDIS_URL: redis://redis:6379/0
+      ST_STREAM: events.raw
+      ST_CORS_ORIGINS: http://localhost:3000
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   # dashboard:  phase 2 — Next.js, bound to 127.0.0.1:3000 only
 
 networks:

@@ -3,7 +3,7 @@ COMPOSE := docker compose
 DB_USER := $(shell grep -E '^POSTGRES_USER=' .env 2>/dev/null | cut -d= -f2 || echo sentinel)
 DB_NAME := $(shell grep -E '^POSTGRES_DB=' .env 2>/dev/null | cut -d= -f2 || echo sentineltrap)
 
-.PHONY: help up down restart build logs logs-tailer logs-writer ps psql redis \
+.PHONY: help up down restart build logs logs-tailer logs-writer logs-api ps psql redis \
         events sessions egress egress-check verify clean nuke lint fmt test
 
 help: ## Show this help
@@ -42,6 +42,9 @@ logs-tailer: ## Follow the tailer only
 logs-writer: ## Follow the writer only
 	$(COMPOSE) logs -f writer
 
+logs-api: ## Follow the API only
+	$(COMPOSE) logs -f api
+
 psql: ## Open a psql shell
 	$(COMPOSE) exec timescaledb psql -U $(DB_USER) -d $(DB_NAME)
 
@@ -76,10 +79,10 @@ verify: ## Assert a decoy cannot reach the internet
 # ------------------------------------------------------------------- quality
 
 lint: ## Lint Python
-	ruff check pipeline/src decoys/sentinel-web/app
+	ruff check pipeline/src decoys/sentinel-web/app api/src
 
 fmt: ## Format Python
-	ruff format pipeline/src decoys/sentinel-web/app
+	ruff format pipeline/src decoys/sentinel-web/app api/src
 
 test: ## Run tests
 	pytest -q
