@@ -40,11 +40,11 @@ services:
     tmpfs:
       - /tmp
       - /cowrie/cowrie-git/var/run
+    # cowrie/cowrie:3.0.13 ships no shell or nc, so CMD-SHELL can never run —
+    # this healthcheck can never pass. Disabled rather than removed so the
+    # intent (and why it's off) stays visible.
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 2222 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      disable: true
 
   sentinel-web:
     build: ./decoys/sentinel-web
