@@ -151,6 +151,27 @@ services:
       ST_GROUP: writer
       ST_PG_DSN: postgresql://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-sentineltrap}
 
+  sessioniser:
+    build: ./pipeline
+    container_name: st-sessioniser
+    command: ["python", "-m", "sentinel_pipeline.sessioniser"]
+    restart: unless-stopped
+    networks: [platform]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro   # rule YAML + scoring.yaml, kept out of the image so edits don't need a rebuild
+    environment:
+      ST_REDIS_URL: redis://redis:6379/0
+      ST_STREAM: events.raw
+      ST_GROUP: sessioniser
+      ST_PG_DSN: postgresql://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-sentineltrap}
+      ST_RULES_DIR: /app/config/rules
+      ST_SCORING_CONFIG: /app/config/scoring.yaml
+
   api:
     build: ./api
     container_name: st-api
