@@ -46,4 +46,6 @@ dist/
 .DS_Store
 Thumbs.db
 
+# --- local Claude Code guidance and tooling (not repo deliverables) ---
 CLAUDE.md
+.claude/
