@@ -6,12 +6,27 @@ Three decoy services pretend to be vulnerable. Everything they log is normalised
 stream, grouped into sessions, scored by a layered detection stack — rules, anomaly detection, and a
 supervised classifier — and rendered live in a browser as it happens.
 
-> **Status: early.** The decoy tier, ingest path and storage layer are written and wired together —
-> both `sentinel-web` and Cowrie have been run end-to-end through Redis into Postgres, real login
-> attempts included. The API's `/api/events` and `/ws/live` are also verified end-to-end: real
-> `sentinel-web` traffic reaches a connected WebSocket client as batched frames, independently of
-> the writer's own Postgres path. Detection layers and the dashboard itself are not built yet. See
-> [Roadmap](#roadmap).
+> **Status: early.** The decoy tier, ingest path, storage layer, API and the live feed dashboard are
+> written and wired together end-to-end — both `sentinel-web` and Cowrie have been run through
+> Redis into Postgres, real login attempts included, and a connected browser sees an attack land in
+> real time over `/ws/live`. Detection (sessionisation, rules, the anomaly/classifier models) and
+> the rest of the dashboard are not built yet. See [Roadmap](#roadmap).
+
+---
+
+## Live feed
+
+A real attack against `sentinel-web` — a WordPress login attempt, a search-box SQLi probe, a
+`.env` grab — landing in the browser as it happens:
+
+![Live feed showing a real attack landing](docs/live-feed.png)
+
+<details>
+<summary>Screen recording (11s, .webm)</summary>
+
+<video src="docs/demo-live-feed.webm" controls width="100%"></video>
+
+</details>
 
 ---
 
@@ -119,7 +134,7 @@ config/                scoring weights and detection rules
 scripts/               host-side setup (egress drop)
 data/geoip/            MaxMind .mmdb files — fetched manually, not committed
 api/                   FastAPI REST + WebSocket — built, verified end-to-end
-dashboard/             Next.js dashboard                (phase 2)
+dashboard/             Next.js dashboard — live feed built and verified; 7 views to go
 attack-sim/            traffic generator                (phase 3)
 ```
 
@@ -128,7 +143,7 @@ attack-sim/            traffic generator                (phase 3)
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | verified end-to-end |
-| 2 | REST API + `/ws/live`, live feed in the browser | API verified end-to-end; dashboard next |
+| 2 | REST API + `/ws/live`, live feed in the browser | verified end-to-end |
 | 3 | Sessionisation, 25-feature extractor, enrichment, YAML rule engine | |
 | 4 | Isolation Forest, LightGBM classifier, HDBSCAN campaigns, retraining | |
 | 5 | Evaluation on a hand-labelled held-out set, session replay, auth | |
