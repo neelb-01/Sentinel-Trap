@@ -6,11 +6,12 @@ Three decoy services pretend to be vulnerable. Everything they log is normalised
 stream, grouped into sessions, scored by a layered detection stack — rules, anomaly detection, and a
 supervised classifier — and rendered live in a browser as it happens.
 
-> **Status: early.** The decoy tier, ingest path, storage layer, API and the live feed dashboard are
-> written and wired together end-to-end — both `sentinel-web` and Cowrie have been run through
-> Redis into Postgres, real login attempts included, and a connected browser sees an attack land in
-> real time over `/ws/live`. Detection (sessionisation, rules, the anomaly/classifier models) and
-> the rest of the dashboard are not built yet. See [Roadmap](#roadmap).
+> **Status: phase 3 in progress.** Decoys, ingest, storage, the API, and a live feed are wired
+> together end-to-end: a browser sees an attack land in real time over `/ws/live`. Events are now
+> also grouped into sessions, scored by a YAML rule engine, and raised as alerts that a human can
+> triage in the dashboard — each verdict recorded as a label for later training. GeoIP enrichment,
+> the traffic generator, the anomaly/classifier models, and the remaining dashboard views are not
+> built yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -39,6 +40,31 @@ scanner from a hands-on-keyboard intruder, and producing an alert a human can ac
 That middle layer is the point of this project. The decoys themselves are deliberately boring —
 two are off-the-shelf, and the third is the one worth writing.
 
+## Detection, so far
+
+The first layer of that middle is built:
+
+1. **Sessions.** A dedicated consumer groups events by source IP and decoy, closing a session after
+   15 minutes of silence. Sessions are the unit everything downstream reasons about — one failed
+   login is noise, twenty in two minutes is a pattern.
+2. **Features.** Each session carries ~24 numeric features: volume, timing, credential attempts,
+   distinct passwords, commands run, probe counts, identity signals.
+3. **Rules.** YAML rules in `config/rules/` match on session features (`features.credential_attempts
+   >= 20`) or on a single event's payload (a SQLi tautology in a search box).
+4. **Alerts.** A session whose score crosses `alert_minimum` raises an alert carrying its score, the
+   rules that fired, and a human-readable reason.
+5. **Triage.** An analyst confirms or dismisses each alert in the dashboard. That verdict is written
+   to `labels` as a human label, kept separate from anything a rule produced.
+
+Only the rule term of the threat score is live for now. The weights in `config/scoring.yaml` also
+reserve room for an anomaly score, classifier confidence, IP reputation, and persistence, and those
+stay at zero until the models and GeoIP enrichment exist. One practical consequence: a lone
+credential-bruteforce hit (severity 0.6) scores 24, just under the alert threshold of 25, so the
+session is recorded but raises no alert until a second signal joins it.
+
+Known limitation: open-session state lives in the consumer's memory, so restarting it mid-session
+splits that session into two rows.
+
 ## Architecture
 
 ```
@@ -63,7 +89,7 @@ browser.
 | FTP / SMB / MySQL decoy | [Dionaea](https://github.com/DinoTools/dionaea) | scaffolded, disabled |
 | Event bus | Redis Streams | consumer groups, at-least-once |
 | Store | PostgreSQL + TimescaleDB | `events` hypertable |
-| Detection | scikit-learn, LightGBM, HDBSCAN | **built here** |
+| Detection | YAML rules; scikit-learn, LightGBM, HDBSCAN | **built here** (rules done, models next) |
 | API | FastAPI + WebSocket | **built here** |
 | Dashboard | Next.js + React | **built here** |
 | Runtime | Docker Compose | two isolated networks |
@@ -121,6 +147,22 @@ Or watch it over the API instead of psql — `curl http://127.0.0.1:8000/api/eve
 history, or open a WebSocket to `ws://127.0.0.1:8000/ws/live` to watch new events arrive as they
 happen.
 
+Trip a rule and see the session and alert it produces:
+
+```sh
+curl "http://127.0.0.1:8080/search?q=%27%20OR%20%271%27%3D%271"   # SQLi probe
+make sessions
+curl http://127.0.0.1:8000/api/alerts
+```
+
+The dashboard isn't in Compose yet; run it alongside the stack:
+
+```sh
+cd dashboard && cp .env.local.example .env.local && npm install && npm run dev
+```
+
+Then open `http://localhost:3000` for the live feed, or `/triage` to work the alert queue.
+
 `make help` lists the rest.
 
 ## Layout
@@ -128,14 +170,14 @@ happen.
 ```
 decoys/sentinel-web/   the web honeypot — fake logins, injectable-looking endpoints, tarpit
 decoys/cowrie/         Cowrie configuration
-pipeline/              event schema, log tailer, writer; sessioniser and detection to come
+pipeline/              event schema, tailer, writer, sessioniser, features, rule engine
 db/init/               schema, hypertable, indexes
 config/                scoring weights and detection rules
 scripts/               host-side setup (egress drop)
 data/geoip/            MaxMind .mmdb files — fetched manually, not committed
-api/                   FastAPI REST + WebSocket — built, verified end-to-end
-dashboard/             Next.js dashboard — live feed built and verified; 7 views to go
-attack-sim/            traffic generator                (phase 3)
+api/                   FastAPI REST + WebSocket, including the triage write path
+dashboard/             Next.js dashboard — live feed and alert triage built; 6 views to go
+attack-sim/            traffic generator — not built yet
 ```
 
 ## Roadmap
@@ -144,7 +186,7 @@ attack-sim/            traffic generator                (phase 3)
 |---|---|---|
 | 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | verified end-to-end |
 | 2 | REST API + `/ws/live`, live feed in the browser | verified end-to-end |
-| 3 | Sessionisation, 25-feature extractor, enrichment, YAML rule engine | |
+| 3 | Sessionisation, feature extractor, YAML rule engine, alerts, triage, enrichment, `attack-sim/` | in progress — sessions, features, rules, alerts, and triage verified end-to-end; enrichment, `attack-sim/`, overview and map views to go |
 | 4 | Isolation Forest, LightGBM classifier, HDBSCAN campaigns, retraining | |
 | 5 | Evaluation on a hand-labelled held-out set, session replay, auth | |
 
