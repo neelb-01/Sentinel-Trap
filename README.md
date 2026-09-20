@@ -9,9 +9,11 @@ supervised classifier — and rendered live in a browser as it happens.
 > **Status: phase 3 in progress.** Decoys, ingest, storage, the API, and a live feed are wired
 > together end-to-end: a browser sees an attack land in real time over `/ws/live`. Events are now
 > also grouped into sessions, scored by a YAML rule engine, and raised as alerts that a human can
-> triage in the dashboard — each verdict recorded as a label for later training. GeoIP enrichment,
-> the traffic generator, the anomaly/classifier models, and the remaining dashboard views are not
-> built yet. See [Roadmap](#roadmap).
+> triage in the dashboard — each verdict recorded as a label for later training. A synthetic
+> traffic generator (`attack-sim/`) drives the decoys with recon, credential-bruteforce, web-exploit
+> and benign campaigns from many synthetic sources, producing the sessions and alerts everything
+> downstream trains and demos on. GeoIP enrichment, the anomaly/classifier models, and the remaining
+> dashboard views are not built yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -177,7 +179,7 @@ scripts/               host-side setup (egress drop)
 data/geoip/            MaxMind .mmdb files — fetched manually, not committed
 api/                   FastAPI REST + WebSocket, including the triage write path
 dashboard/             Next.js dashboard — live feed and alert triage built; 6 views to go
-attack-sim/            traffic generator — not built yet
+attack-sim/            traffic generator — web classes built (recon/brute/exploit/benign)
 ```
 
 ## Roadmap
@@ -186,7 +188,7 @@ attack-sim/            traffic generator — not built yet
 |---|---|---|
 | 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | verified end-to-end |
 | 2 | REST API + `/ws/live`, live feed in the browser | verified end-to-end |
-| 3 | Sessionisation, feature extractor, YAML rule engine, alerts, triage, enrichment, `attack-sim/` | in progress — sessions, features, rules, alerts, and triage verified end-to-end; enrichment, `attack-sim/`, overview and map views to go |
+| 3 | Sessionisation, feature extractor, YAML rule engine, alerts, triage, enrichment, `attack-sim/` | in progress — sessions, features, rules, alerts, triage, and the `attack-sim/` web classes verified end-to-end; GeoIP enrichment, the Cowrie-side attack classes, and the overview/map views to go |
 | 4 | Isolation Forest, LightGBM classifier, HDBSCAN campaigns, retraining | |
 | 5 | Evaluation on a hand-labelled held-out set, session replay, auth | |
 
@@ -201,7 +203,10 @@ Two rules keep the numbers honest:
   trains on labels its own rule engine produced, it is just an expensive reimplementation of those
   regexes.
 - Metrics are reported **only** on a hand-labelled held-out set, per class, as precision/recall and
-  macro-F1 — never plain accuracy, which class imbalance makes meaningless here.
+  macro-F1 — never plain accuracy, which class imbalance makes meaningless here. `attack-sim/`
+  already reserves that slice: held-out campaigns come from a separate source-IP range and are
+  flagged in the run manifest, and no class label is ever written into an event — it lives only in
+  the manifest, keyed to source and time window, to be joined back after the fact.
 
 The number that matters most is not F1: it is how many attacks the anomaly layer caught that no rule
 fired on.
