@@ -82,10 +82,10 @@ verify: ## Assert a decoy cannot reach the internet
 # ------------------------------------------------------------------- quality
 
 lint: ## Lint Python
-	ruff check pipeline/src decoys/sentinel-web/app api/src
+	ruff check pipeline/src decoys/sentinel-web/app api/src attack-sim/src
 
 fmt: ## Format Python
-	ruff format pipeline/src decoys/sentinel-web/app api/src
+	ruff format pipeline/src decoys/sentinel-web/app api/src attack-sim/src
 
 test: ## Run tests
 	pytest -q
