@@ -31,6 +31,10 @@ LOG_PATH = Path(os.environ.get("ST_LOG_PATH", "/logs/events.jsonl"))
 TARPIT_MIN = float(os.environ.get("ST_TARPIT_MIN_SECONDS", "3"))
 TARPIT_MAX = float(os.environ.get("ST_TARPIT_MAX_SECONDS", "8"))
 TARPIT_AFTER = int(os.environ.get("ST_TARPIT_AFTER_HITS", "5"))
+# Honour X-Forwarded-For as the source IP. Off by default: a real deployment sits
+# behind nothing and must not let a client spoof its own src_ip. attack-sim turns
+# this on so one local generator can present many distinct sources for sessioning.
+TRUST_XFF = os.environ.get("ST_TRUST_XFF", "0") == "1"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("sentinel-web")
@@ -95,6 +99,11 @@ def fingerprint(request: Request) -> dict[str, Any]:
 async def record(request: Request, action: str, payload: dict[str, Any] | None = None) -> None:
     """Append one normalised event. Never raises into the request path."""
     src_ip = request.client.host if request.client else "0.0.0.0"
+    if TRUST_XFF:
+        fwd = request.headers.get("x-forwarded-for", "")
+        if fwd:
+            # left-most hop is the claimed origin; keep only the address
+            src_ip = fwd.split(",")[0].strip()[:45] or src_ip
     body = {
         "event_id": ulid(),
         "ts": datetime.now(timezone.utc).isoformat(),
