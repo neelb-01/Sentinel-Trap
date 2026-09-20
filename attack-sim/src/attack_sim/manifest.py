@@ -23,7 +23,8 @@ class CampaignRecord:
     held_out: bool
     label: str
     decoy: str
-    user_agent: str
+    # HTTP user-agent (web classes) or SSH client-version banner (Cowrie classes).
+    fingerprint: str
     started_at: str
     ended_at: str
     requests_sent: int

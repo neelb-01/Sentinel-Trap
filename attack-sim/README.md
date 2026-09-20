@@ -4,11 +4,16 @@ Synthetic attack-traffic generator. This is a first-class deliverable, not a tes
 fixture: running locally means there are no real attackers, so this module
 produces everything the detection layer trains and demos on.
 
-It drives the live decoys over HTTP exactly as a real client would. Each
-generated *campaign* is one synthetic attacker with its own source address,
-presented to the decoy via `X-Forwarded-For` — `sentinel-web` honours it when
-`ST_TRUST_XFF=1` (set for it in `docker-compose.yml`) — so the sessioniser splits
-traffic by origin the same way it would for many real hosts.
+It drives the live decoys exactly as a real client would. Each generated
+*campaign* is one synthetic attacker with its own source address, so the
+sessioniser splits traffic by origin the same way it would for many real hosts.
+The source is spoofed per protocol: HTTP campaigns present it via
+`X-Forwarded-For` (`sentinel-web` honours it when `ST_TRUST_XFF=1`); SSH campaigns
+prefix each connection with a HAProxy **PROXY-protocol v1** header, which Cowrie
+attributes the session to when its listener is a `haproxy:` endpoint. Both are set
+in `docker-compose.yml` for the local sim only — a public VPS must keep the plain
+endpoints (see the compose comments), or a real client could spoof its own origin
+and, for SSH, real scanners that send no PROXY header would be dropped.
 
 ## What's built
 
@@ -21,14 +26,27 @@ The four **web** classes, driving `sentinel-web`:
 | `web_exploit` | SQLi in `/search?q=`, LFI/traversal via query and path, Log4Shell / Shellshock in headers | `004-sqli-probe`, `003-path-traversal` |
 | `benign` | browsers, crawlers and monitors doing normal things — the negatives | nothing (class weight 0.0) |
 
-The credential and exploit generators are deliberately shaped to clear the rule
-thresholds, so a run produces real **alerts**, not just events.
+And the two **SSH** classes, driving Cowrie (via `paramiko` over the PROXY
+protocol):
 
-Still **not** built (see the root `CLAUDE.md`): the Cowrie-side classes
-(`malware_dropper`, SSH bruteforce — need `paramiko`) and any real external tool
+| Class | Shape | Trips |
+|---|---|---|
+| `ssh_bruteforce` | 24–36 SSH logins, ≥14 distinct passwords, one connection each | `001-credential-bruteforce` (fires, but severity 0.6 → 24 < 25 `alert_minimum`, so no alert on its own — same as the web credential class) |
+| `malware_dropper` | walk distinct weak creds until Cowrie's `AuthRandom` grants a shell, then recon + a Mirai-style `wget/curl/tftp … ; chmod +x … ; ./…` one-liner + cleanup | `002-malware-dropper` (severity 0.95 → alert, score 38) |
+
+`ssh_bruteforce`'s manifest **label** is `credential_bruteforce` — a brute is that
+class regardless of protocol; only the generator key differs. The dropper's fetch
+and `chmod` share one command line on purpose: `002` matches a single event's
+`payload.input`, and Cowrie logs an exec'd line whole before splitting it.
+
+The credential, exploit and dropper generators are deliberately shaped to clear
+the rule thresholds, so a run produces real **alerts**, not just events.
+
+Still **not** built (see the root `CLAUDE.md`): a Telnet brute class (Cowrie's
+telnet listener is also PROXY-wrapped, but `telnetlib` was removed in Python 3.13,
+so it needs a hand-rolled client) and any real external tool
 (`nmap`/`hydra`/`sqlmap`/…), which the generators can shell out to later where one
-is on `$PATH`. The web classes above cover ~80% of the corpus below with zero
-external installs.
+is on `$PATH`.
 
 ## Target corpus
 
@@ -62,20 +80,23 @@ Each run writes to `attack-sim/out/` (gitignored):
 
 ## Running it
 
-Needs the stack up (`make up`) and one dependency (`httpx`):
+Needs the stack up (`make up`) and two dependencies (`httpx`, `paramiko`):
 
 ```sh
 cd attack-sim
 python -m venv .venv && . .venv/bin/activate
 pip install -e .
-python -m attack_sim --preset quick                 # ~475 requests, a fast demo
-python -m attack_sim --preset full                   # ~4500 requests, near the corpus targets
-python -m attack_sim --only web_exploit --scale 2    # just one class, doubled
-python -m attack_sim --preset quick --seed 42        # reproducible; the seed is printed either way
+python -m attack_sim --preset quick                       # a fast demo, all six classes
+python -m attack_sim --preset full                         # near the corpus targets
+python -m attack_sim --only web_exploit --scale 2          # just one class, doubled
+python -m attack_sim --only ssh_bruteforce,malware_dropper # just the Cowrie classes
+python -m attack_sim --preset quick --seed 42              # reproducible; the seed is printed either way
 ```
 
-Useful flags: `--base-url` (default `http://127.0.0.1:8080`), `--concurrency`,
-`--holdout-fraction` (default `0.2`), `--timing-scale` (`>1` slower, `<1` faster;
-`0` fires as fast as possible). After a run, watch it land with `make sessions`,
-`make logs-sessioniser`, and the triage queue at `curl 127.0.0.1:8000/api/alerts`
-or the dashboard.
+Useful flags: `--base-url` (default `http://127.0.0.1:8080`) and `--ssh-host` /
+`--ssh-port` (default `127.0.0.1:22`, Cowrie's published SSH) for the two decoys;
+`--concurrency`, `--holdout-fraction` (default `0.2`), `--timing-scale` (`>1`
+slower, `<1` faster; `0` fires as fast as possible). The runner probes only the
+transports a run actually needs, so an HTTP-only `--only` doesn't require SSH up.
+After a run, watch it land with `make sessions`, `make logs-sessioniser`, and the
+triage queue at `curl 127.0.0.1:8000/api/alerts` or the dashboard.

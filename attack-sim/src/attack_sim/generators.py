@@ -1,19 +1,28 @@
 """One coroutine per traffic class. Each drives a single campaign end to end.
 
-The four classes mirror the corpus table in ``attack-sim/README.md`` and the
-``class_weights`` taxonomy in ``config/scoring.yaml``:
+The classes mirror the corpus table in ``attack-sim/README.md`` and the
+``class_weights`` taxonomy in ``config/scoring.yaml``. Four drive ``sentinel-web``
+over HTTP:
 
     recon_scan            walk many paths, cheap and fast, scanner user-agents
     credential_bruteforce hammer one login endpoint past the rule thresholds
     web_exploit           SQLi / traversal / Log4Shell / Shellshock payloads
     benign                browsers, crawlers and monitors doing normal things
 
-A generator only decides *what requests to make*; timing, the synthetic source
-and error handling live in ``Campaign``. Request counts are randomised per
-campaign so no two attackers look identical. The credential and exploit
+Two drive Cowrie over SSH (via ``SSHCampaign`` and the PROXY protocol):
+
+    ssh_bruteforce        many password guesses over SSH — the SAME class label
+                          as credential_bruteforce (a brute is a brute; only the
+                          protocol differs), so its generator key differs from
+                          its ``label``
+    malware_dropper       log in, then run a Mirai-style download-and-execute
+
+A generator only decides *what to do*; timing, the synthetic source and error
+handling live in ``Campaign`` / ``SSHCampaign``. Counts are randomised per
+campaign so no two attackers look identical. The credential, exploit and dropper
 generators are shaped to actually trip the YAML rules (>=20 attempts with
->=10 distinct passwords; ``payload.q`` / ``payload.query`` matching the SQLi and
-traversal patterns), so a run produces real alerts, not just events.
+>=10 distinct passwords; SQLi/traversal patterns; a single command line carrying
+both a fetch and a chmod), so a run produces real alerts, not just events.
 """
 
 from __future__ import annotations
@@ -24,6 +33,7 @@ from dataclasses import dataclass
 
 from . import wordlists as w
 from .client import Campaign, Timing
+from .ssh_client import SSHCampaign
 
 
 async def recon_scan(c: Campaign, rng: random.Random) -> None:
@@ -97,27 +107,96 @@ async def benign(c: Campaign, rng: random.Random) -> None:
         await c.request("GET", "/wp-login.php")  # a look, never a POST
 
 
+async def ssh_bruteforce(c: SSHCampaign, rng: random.Random) -> None:
+    # >=20 attempts with >=10 distinct passwords clears 001-credential-bruteforce,
+    # counting Cowrie's login.failed AND the occasional AuthRandom login.success.
+    users = rng.sample(w.USERNAMES, k=rng.randint(1, 3))
+    passwords = rng.sample(w.PASSWORDS, k=rng.randint(14, min(24, len(w.PASSWORDS))))
+    attempts = max(rng.randint(24, 36), len(passwords))
+    schedule = list(passwords) + [rng.choice(passwords) for _ in range(attempts - len(passwords))]
+    rng.shuffle(schedule)
+    for pwd in schedule:
+        await c.try_login(rng.choice(users), pwd)
+
+
+async def malware_dropper(c: SSHCampaign, rng: random.Random) -> None:
+    # Walk distinct weak credentials until Cowrie's AuthRandom lets one in (it
+    # grants the Nth *distinct* pair, N random 2..5), then recon, the
+    # download-and-execute one-liner (trips 002-malware-dropper), and cleanup.
+    # All commands run in one session -> one src_ip -> one session.
+    guesses = rng.sample(w.SSH_WEAK_CREDS, k=min(10, len(w.SSH_WEAK_CREDS)))
+    recon = rng.sample(w.MALWARE_RECON_COMMANDS, k=rng.randint(3, 6))
+    commands = [*recon, w.dropper_oneliner(rng)]
+    if rng.random() < 0.6:
+        commands.extend(rng.sample(w.MALWARE_CLEANUP_COMMANDS, k=rng.randint(1, 2)))
+    await c.run_dropper(guesses, commands)
+
+
+CampaignT = Campaign | SSHCampaign
+
+
 @dataclass(frozen=True, slots=True)
 class ClassSpec:
-    label: str
-    generator: Callable[[Campaign, random.Random], Awaitable[None]]
+    label: str  # the ground-truth class written to the manifest (see scoring.yaml)
+    decoy: str  # "sentinel-web" | "cowrie" — which decoy this drives
+    transport: str  # "http" | "ssh" — picks the campaign/client the runner builds
+    generator: Callable[[CampaignT, random.Random], Awaitable[None]]
     timing: Timing
-    ua_pool: tuple[str, ...]
+    # Per-request user-agents (http) or per-campaign client-version banners (ssh).
+    fingerprints: tuple[str, ...]
 
 
-# Timing is the inter-request gap range in seconds; benign is human-slow, recon
-# is fast, exploit/brute sit in between. Runner can scale all of them at once.
+# Timing is the inter-op gap range in seconds; benign is human-slow, recon is
+# fast, the rest sit in between. Runner can scale all of them at once. The dict
+# KEY is the generator/selector name (used by --only and the presets); the
+# ``label`` is the taxonomy class — they differ only for ssh_bruteforce.
 REGISTRY: dict[str, ClassSpec] = {
     "recon_scan": ClassSpec(
-        "recon_scan", recon_scan, Timing(0.05, 0.4), tuple(w.UA_SCANNER)
+        "recon_scan",
+        "sentinel-web",
+        "http",
+        recon_scan,
+        Timing(0.05, 0.4),
+        tuple(w.UA_SCANNER),
     ),
     "credential_bruteforce": ClassSpec(
-        "credential_bruteforce", credential_bruteforce, Timing(0.1, 0.6), tuple(w.UA_TOOL)
+        "credential_bruteforce",
+        "sentinel-web",
+        "http",
+        credential_bruteforce,
+        Timing(0.1, 0.6),
+        tuple(w.UA_TOOL),
     ),
     "web_exploit": ClassSpec(
-        "web_exploit", web_exploit, Timing(0.15, 0.9), tuple(w.UA_EXPLOIT)
+        "web_exploit",
+        "sentinel-web",
+        "http",
+        web_exploit,
+        Timing(0.15, 0.9),
+        tuple(w.UA_EXPLOIT),
     ),
     "benign": ClassSpec(
-        "benign", benign, Timing(0.8, 4.0), tuple(w.UA_BROWSER + w.UA_CRAWLER)
+        "benign",
+        "sentinel-web",
+        "http",
+        benign,
+        Timing(0.8, 4.0),
+        tuple(w.UA_BROWSER + w.UA_CRAWLER),
+    ),
+    "ssh_bruteforce": ClassSpec(
+        "credential_bruteforce",
+        "cowrie",
+        "ssh",
+        ssh_bruteforce,
+        Timing(0.1, 0.7),
+        tuple(w.SSH_CLIENT_VERSIONS),
+    ),
+    "malware_dropper": ClassSpec(
+        "malware_dropper",
+        "cowrie",
+        "ssh",
+        malware_dropper,
+        Timing(0.3, 1.5),
+        tuple(w.SSH_CLIENT_VERSIONS),
     ),
 }
