@@ -11,9 +11,10 @@ supervised classifier — and rendered live in a browser as it happens.
 > also grouped into sessions, scored by a YAML rule engine, and raised as alerts that a human can
 > triage in the dashboard — each verdict recorded as a label for later training. A synthetic
 > traffic generator (`attack-sim/`) drives the decoys with recon, credential-bruteforce, web-exploit
-> and benign campaigns from many synthetic sources, producing the sessions and alerts everything
-> downstream trains and demos on. GeoIP enrichment, the anomaly/classifier models, and the remaining
-> dashboard views are not built yet. See [Roadmap](#roadmap).
+> and benign campaigns over HTTP, plus SSH brute-force and malware-dropper campaigns against Cowrie,
+> from many synthetic sources — producing the sessions and alerts everything downstream trains and
+> demos on. GeoIP enrichment, the anomaly/classifier models, and the remaining dashboard views are
+> not built yet. See [Roadmap](#roadmap).
 
 ---
 
@@ -135,10 +136,10 @@ make up                          # build and start the stack
 make logs-tailer                 # follow the ingest path
 ```
 
-Then knock on the SSH decoy and watch the event arrive:
+Then knock on a decoy and watch the event arrive — a fake login on the web decoy:
 
 ```sh
-ssh -p 22 root@localhost          # password: anything
+curl -d 'log=admin&pwd=letmein' http://127.0.0.1:8080/wp-login.php
 make psql
 ```
 ```sql
@@ -148,6 +149,20 @@ SELECT ts, decoy, src_ip, action, payload FROM events ORDER BY ts DESC LIMIT 5;
 Or watch it over the API instead of psql — `curl http://127.0.0.1:8000/api/events?limit=5` for
 history, or open a WebSocket to `ws://127.0.0.1:8000/ws/live` to watch new events arrive as they
 happen.
+
+For a burst of realistic, labelled traffic from many synthetic sources — the sessions and alerts the
+detection layer runs on — use the generator:
+
+```sh
+cd attack-sim && python -m venv .venv && . .venv/bin/activate && pip install -e .
+python -m attack_sim --preset quick        # HTTP + SSH campaigns; see attack-sim/README.md
+```
+
+Note the Cowrie decoy in the local stack listens with the HAProxy PROXY protocol so `attack-sim` can
+present a distinct source per campaign (the SSH counterpart of `X-Forwarded-For`). A consequence:
+plain `ssh -p 22 root@localhost` is dropped in this configuration — drive SSH through `attack-sim`.
+See the `cowrie` service comment in `docker-compose.yml`; a public deployment keeps the plain
+endpoint so real scanners are captured.
 
 Trip a rule and see the session and alert it produces:
 
@@ -179,7 +194,7 @@ scripts/               host-side setup (egress drop)
 data/geoip/            MaxMind .mmdb files — fetched manually, not committed
 api/                   FastAPI REST + WebSocket, including the triage write path
 dashboard/             Next.js dashboard — live feed and alert triage built; 6 views to go
-attack-sim/            traffic generator — web classes built (recon/brute/exploit/benign)
+attack-sim/            traffic generator — HTTP classes (recon/brute/exploit/benign) + Cowrie SSH (brute/dropper)
 ```
 
 ## Roadmap
@@ -188,7 +203,7 @@ attack-sim/            traffic generator — web classes built (recon/brute/expl
 |---|---|---|
 | 1 | Compose skeleton, Cowrie logging, hypertable, tailer → Redis → Postgres | verified end-to-end |
 | 2 | REST API + `/ws/live`, live feed in the browser | verified end-to-end |
-| 3 | Sessionisation, feature extractor, YAML rule engine, alerts, triage, enrichment, `attack-sim/` | in progress — sessions, features, rules, alerts, triage, and the `attack-sim/` web classes verified end-to-end; GeoIP enrichment, the Cowrie-side attack classes, and the overview/map views to go |
+| 3 | Sessionisation, feature extractor, YAML rule engine, alerts, triage, enrichment, `attack-sim/` | in progress — sessions, features, rules, alerts, triage, and the `attack-sim/` HTTP and Cowrie SSH classes verified end-to-end; GeoIP enrichment and the overview/map views to go |
 | 4 | Isolation Forest, LightGBM classifier, HDBSCAN campaigns, retraining | |
 | 5 | Evaluation on a hand-labelled held-out set, session replay, auth | |
 
