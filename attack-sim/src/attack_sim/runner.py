@@ -51,7 +51,9 @@ PRESETS: dict[str, dict[str, int]] = {
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8080"
 DEFAULT_SSH_HOST = "127.0.0.1"
-DEFAULT_SSH_PORT = 22  # Cowrie's published SSH port (docker maps host 22 -> 2222)
+# Cowrie's PROXY-protocol-wrapped SSH endpoint (docker maps 127.0.0.1:2224 ->
+# container 2224). The plain :22 endpoint drops our PROXY header, so target 2224.
+DEFAULT_SSH_PORT = 2224
 
 
 async def _run_campaign(

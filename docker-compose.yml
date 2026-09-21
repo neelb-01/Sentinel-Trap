@@ -27,25 +27,29 @@ services:
     <<: *decoy-hardening
     mem_limit: 512m
     ports:
-      - "22:2222"    # SSH
-      - "23:2223"    # Telnet
+      - "22:2222"              # SSH — plain, public: manual ssh + real scanners
+      - "23:2223"              # Telnet — plain
+      - "127.0.0.1:2224:2224"  # SSH — PROXY-wrapped, localhost only: attack-sim
     volumes:
       - ./decoys/cowrie/cowrie.cfg:/cowrie/cowrie-git/etc/cowrie.cfg:ro
       - ./logs/cowrie:/cowrie/cowrie-git/var/log/cowrie
       - cowrie-dl:/cowrie/cowrie-git/var/lib/cowrie/downloads
     environment:
-      # attack-sim presents many synthetic sources by prefixing each connection
-      # with a HAProxy PROXY-protocol v1 header; the "haproxy:" endpoint makes
-      # Cowrie attribute the session to that address (the SSH analogue of
-      # sentinel-web's X-Forwarded-For). Cowrie reads these env vars as overrides
-      # for [ssh]/[telnet] listen_endpoints, so the committed cowrie.cfg keeps the
-      # plain "tcp:" endpoint. IMPORTANT: a "haproxy:" endpoint REQUIRES the PROXY
-      # header on every connection, so on a public VPS collecting real scanner
-      # traffic this must be off (unset, so cowrie.cfg's plain tcp: applies) or the
-      # header must come only from a trusted upstream proxy — otherwise real
-      # attackers, who send no header, are dropped and nothing is captured.
-      COWRIE_SSH_LISTEN_ENDPOINTS: "haproxy:tcp:2222:interface=0.0.0.0"
-      COWRIE_TELNET_LISTEN_ENDPOINTS: "haproxy:tcp:2223:interface=0.0.0.0"
+      # Cowrie listens on TWO SSH endpoints at once (space-separated; Twisted
+      # creates one service per endpoint, both feeding the same honeypot):
+      #   tcp:2222    plain, published on :22 — a manual `ssh` and, on a public
+      #               VPS, real scanners work here exactly as they would in prod.
+      #   haproxy:2224 PROXY-protocol-wrapped, published on 127.0.0.1:2224 only —
+      #               attack-sim prefixes each connection with a PROXY v1 header so
+      #               Cowrie attributes the session to a distinct synthetic source
+      #               (the SSH analogue of sentinel-web's X-Forwarded-For). A
+      #               "haproxy:" endpoint drops any connection WITHOUT that header,
+      #               which is why it's a separate, localhost-only port rather than
+      #               replacing :22. Cowrie reads this env var as an override for
+      #               [ssh] listen_endpoints; the committed cowrie.cfg stays plain,
+      #               so a public deployment that doesn't set this captures real
+      #               scanners on :22 and simply doesn't expose 2224.
+      COWRIE_SSH_LISTEN_ENDPOINTS: "tcp:2222:interface=0.0.0.0 haproxy:tcp:2224:interface=0.0.0.0"
     # read_only:true is deliberate, but Cowrie writes to a few paths besides the
     # ones mounted above (tty logs, state). If it crash-loops on first run, check
     # `docker logs st-cowrie` for EROFS and add the path as a tmpfs here rather

@@ -94,7 +94,8 @@ python -m attack_sim --preset quick --seed 42              # reproducible; the s
 ```
 
 Useful flags: `--base-url` (default `http://127.0.0.1:8080`) and `--ssh-host` /
-`--ssh-port` (default `127.0.0.1:22`, Cowrie's published SSH) for the two decoys;
+`--ssh-port` (default `127.0.0.1:2224`, Cowrie's localhost-only PROXY-protocol SSH endpoint — the
+public `:22` stays plain for manual `ssh`) for the two decoys;
 `--concurrency`, `--holdout-fraction` (default `0.2`), `--timing-scale` (`>1`
 slower, `<1` faster; `0` fires as fast as possible). The runner probes only the
 transports a run actually needs, so an HTTP-only `--only` doesn't require SSH up.
