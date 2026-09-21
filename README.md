@@ -158,11 +158,11 @@ cd attack-sim && python -m venv .venv && . .venv/bin/activate && pip install -e 
 python -m attack_sim --preset quick        # HTTP + SSH campaigns; see attack-sim/README.md
 ```
 
-Note the Cowrie decoy in the local stack listens with the HAProxy PROXY protocol so `attack-sim` can
-present a distinct source per campaign (the SSH counterpart of `X-Forwarded-For`). A consequence:
-plain `ssh -p 22 root@localhost` is dropped in this configuration — drive SSH through `attack-sim`.
-See the `cowrie` service comment in `docker-compose.yml`; a public deployment keeps the plain
-endpoint so real scanners are captured.
+So each SSH campaign can present a distinct source (the counterpart of `X-Forwarded-For`, which SSH
+lacks), Cowrie also listens on a second, localhost-only endpoint wrapped in the HAProxy PROXY
+protocol, on port 2224 — `attack-sim` targets it by default. The public SSH port 22 stays plain, so
+`ssh -p 22 root@localhost` still works and a VPS deployment captures real scanners there unchanged.
+See the `cowrie` service comment in `docker-compose.yml`.
 
 Trip a rule and see the session and alert it produces:
 
